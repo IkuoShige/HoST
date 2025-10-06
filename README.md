@@ -1,4 +1,13 @@
 # HoST: Humanoid Standing-up Control
+## quick start
+
+```bash
+uv sync
+# install isaacgym
+bash setup_third_party.sh
+uv run python legged_gym/legged_gym/scripts/train.py --task pi_ground --run_name test_minipi_ground --headless
+uv run python legged_gym/legged_gym/scripts/play.py --task pi_ground --checkpoint_path legged_gym/logs/Pi_ground/Oct04_12-19-52_test_minipi_ground/model_400.pt
+```
 
 [![arXiv](https://img.shields.io/badge/arXiv-2502.08378-brown)](https://arxiv.org/abs/2502.08378)
 [![](https://img.shields.io/badge/Website-%F0%9F%9A%80-yellow)](https://taohuang13.github.io/humanoid-standingup.github.io/)
