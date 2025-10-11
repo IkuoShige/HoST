@@ -1146,12 +1146,20 @@ class LeggedRobot_Pi(BaseTask):
         return reward 
 
     def _reward_ground_parallel(self):
-        left_ankle_pos = self.rigid_body_states[:, self.left_ankle_indices, 2].clone() * 10
-        right_ankle_pos = self.rigid_body_states[:, self.right_ankle_indices, 2].clone() * 10
-        var = left_ankle_pos.var(1) + right_ankle_pos.var(1)
-        var = torch.mean(torch.concat([left_ankle_pos.var(1).view(-1, 1), right_ankle_pos.var(1).view(-1, 1)], dim=-1), dim=-1)
-        reward = var < 0.05
-
+        # Encourage feet to be parallel to ground: small roll/pitch angles of foot links
+        # Use ankle_pitch links orientation as proxy of foot plane
+        left_quat = self.rigid_body_states[:, self.left_foot_indices, 3:7]
+        right_quat = self.rigid_body_states[:, self.right_foot_indices, 3:7]
+        # Convert to euler and take roll/pitch magnitude
+        def flatness(q):
+            eul = quat_to_euler_xyz(q.squeeze(1)) if q.shape[1] == 1 else quat_to_euler_xyz(q.mean(dim=1))
+            # eul: [N,3] roll=x, pitch=y, yaw=z
+            rp = torch.abs(eul[:, 0]) + torch.abs(eul[:, 1])
+            return rp
+        left_rp = flatness(left_quat)
+        right_rp = flatness(right_quat)
+        rp_mean = 0.5 * (left_rp + right_rp)
+        reward = torch.exp(-5.0 * rp_mean)
         if self.cfg.constraints.post_task:
             standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
             reward = reward * ~standup + torch.ones_like(reward) * standup
@@ -1165,6 +1173,39 @@ class LeggedRobot_Pi(BaseTask):
         # return (feet_distances > 0.33).squeeze(1) #better standing style
         return (feet_distances > 0.45).squeeze(1)
 
+
+    def _reward_feet_contact_balance(self):
+        # Encourage balanced vertical contact forces earlier (phase2+)
+        if self.left_foot_indices.numel() == 0 or self.right_foot_indices.numel() == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        left_fz = torch.norm(self.contact_forces[:, self.left_foot_indices, 2], dim=-1)
+        right_fz = torch.norm(self.contact_forces[:, self.right_foot_indices, 2], dim=-1)
+        diff = torch.abs(left_fz - right_fz)
+        total = (left_fz + right_fz + 1e-4)
+        imbalance = diff / total
+        standup_mid  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2
+        reward = torch.exp(-5.0 * imbalance) * standup_mid
+        return reward
+
+    def _reward_ankle_pitch_neutral(self):
+        # Encourage ankle pitch joints to stay near a neutral slight dorsiflexion (flat foot proxy)
+        # Joint order known by name search
+        target = -0.1
+        # find indices once (cache lazily)
+        if not hasattr(self, 'ankle_pitch_joint_indices'):
+            self.ankle_pitch_joint_indices = []
+            for name in self.dof_names:
+                if 'ankle_pitch_joint' in name:
+                    self.ankle_pitch_joint_indices.append(self.dof_names.index(name))
+            self.ankle_pitch_joint_indices = torch.tensor(self.ankle_pitch_joint_indices, device=self.device, dtype=torch.long)
+        if self.ankle_pitch_joint_indices.numel() == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        ankle_angles = self.dof_pos[:, self.ankle_pitch_joint_indices]
+        # mean squared deviation from target over both ankles
+        mse = torch.mean((ankle_angles - target)**2, dim=1)
+        standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2
+        reward = torch.exp(-10.0 * mse) * standup
+        return reward
 
     def _reward_style_ang_vel_xy(self):
         # Penalize xy axes base angular velocity
