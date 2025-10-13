@@ -12,6 +12,7 @@ if [ ! -d "isaacgym" ]; then
     find isaacgym/python -type f -name "*.py" -exec sed -i 's/np\.float/np.float32/g' {} +
 fi
 
+cd ../
 # editable install
 uv pip install -e third_party/isaacgym/python/
 # HoST's environment
