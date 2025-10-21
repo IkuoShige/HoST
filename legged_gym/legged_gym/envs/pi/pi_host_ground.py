@@ -164,6 +164,50 @@ class LeggedRobot_Pi(BaseTask):
         self.last_root_vel[:] = self.root_states[:, 7:13]
         self.last_last_dof_pos[:] = self.last_dof_pos[:]
         self.last_dof_pos[:] = self.dof_pos[:]
+        # logging metrics for diagnostics
+        try:
+            # ankle pitch indices (cache)
+            if not hasattr(self, 'l_ankle_pitch_joint_index'):
+                self.l_ankle_pitch_joint_index = torch.tensor(self.dof_names.index('l_ankle_pitch_joint'), device=self.device)
+                self.r_ankle_pitch_joint_index = torch.tensor(self.dof_names.index('r_ankle_pitch_joint'), device=self.device)
+            l_ap = self.dof_pos[:, self.l_ankle_pitch_joint_index]
+            r_ap = self.dof_pos[:, self.r_ankle_pitch_joint_index]
+            ankle_pitch_mean = (l_ap + r_ap) * 0.5
+            ankle_pitch_diff = torch.abs(l_ap - r_ap)
+
+            # contact forces (z)
+            left_fz = torch.norm(self.contact_forces[:, self.left_foot_indices, 2], dim=-1)
+            right_fz = torch.norm(self.contact_forces[:, self.right_foot_indices, 2], dim=-1)
+            fz_total = left_fz + right_fz + 1e-4
+            fz_imbalance = torch.abs(left_fz - right_fz) / fz_total
+
+            # foot orientation flatness proxy
+            left_quat = self.rigid_body_states[:, self.left_foot_indices, 3:7]
+            right_quat = self.rigid_body_states[:, self.right_foot_indices, 3:7]
+            def rp_mean(q):
+                eul = quat_to_euler_xyz(q.squeeze(1)) if q.shape[1] == 1 else quat_to_euler_xyz(q.mean(dim=1))
+                return (torch.abs(eul[:, 0]) + torch.abs(eul[:, 1]))
+            foot_rp = 0.5 * (rp_mean(left_quat) + rp_mean(right_quat))
+
+            # stand ratios
+            stand_phase2 = (self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2).float()
+            stand_phase3 = (self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3).float()
+
+            if 'metrics' not in self.extras:
+                self.extras['metrics'] = {}
+            self.extras['metrics']['ankle_pitch_mean'] = ankle_pitch_mean.mean().item()
+            self.extras['metrics']['ankle_pitch_diff'] = ankle_pitch_diff.mean().item()
+            self.extras['metrics']['fz_left'] = left_fz.mean().item()
+            self.extras['metrics']['fz_right'] = right_fz.mean().item()
+            self.extras['metrics']['fz_imbalance'] = fz_imbalance.mean().item()
+            self.extras['metrics']['foot_rp_mean'] = foot_rp.mean().item()
+            self.extras['metrics']['stand_phase2_ratio'] = stand_phase2.mean().item()
+            self.extras['metrics']['stand_phase3_ratio'] = stand_phase3.mean().item()
+            self.extras['metrics']['base_height_mean'] = self.root_states[:, 2].mean().item()
+        except Exception as e:
+            # avoid crashing training if any metric fails
+            pass
+
 
     def check_termination(self):
         """ Check if environments need to be reset
