@@ -511,6 +511,29 @@ class LeggedRobot_Pi(BaseTask):
             self.root_states[env_ids] = self.base_init_state
             self.root_states[env_ids, :3] += self.env_origins[env_ids]
 
+        # Randomly select initial orientation from 4 directions
+        if getattr(self.cfg.init_state, 'random_initial_orientation', False):
+            weights = getattr(self.cfg.init_state, 'orientation_weights', [0.25, 0.25, 0.25, 0.25])
+
+            quats = [
+                torch.tensor(self.cfg.init_state.supine_rot, device=self.device, dtype=torch.float),
+                torch.tensor(self.cfg.init_state.prone_rot, device=self.device, dtype=torch.float),
+                torch.tensor(getattr(self.cfg.init_state, 'left_side_rot', [1.0, 0, 0, 1.0]), device=self.device, dtype=torch.float),
+                torch.tensor(getattr(self.cfg.init_state, 'right_side_rot', [-1.0, 0, 0, 1.0]), device=self.device, dtype=torch.float),
+            ]
+
+            # Sample orientation index for each env
+            orientation_idx = torch.multinomial(
+                torch.tensor(weights, device=self.device),
+                num_samples=len(env_ids),
+                replacement=True
+            )
+
+            for i, quat in enumerate(quats):
+                mask = orientation_idx == i
+                if mask.any():
+                    self.root_states[env_ids[mask], 3:7] = quat
+
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(self.root_states),

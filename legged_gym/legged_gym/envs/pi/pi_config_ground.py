@@ -5,6 +5,13 @@ class PiCfg( LeggedRobotCfg ):
     class init_state( LeggedRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.351] # x,y,z [m], updated to match Piwaist
         rot = [0.0, -1, 0, 1.0] # x,y,z,w [quat]
+        # Random initial orientation settings (4 directions)
+        random_initial_orientation = True
+        supine_rot = [0.0, -1, 0, 1.0]      # supine (back down)
+        prone_rot = [0.0, 1, 0, 1.0]        # prone (face down)
+        left_side_rot = [1.0, 0, 0, 1.0]    # left side down
+        right_side_rot = [-1.0, 0, 0, 1.0]  # right side down
+        orientation_weights = [0.25, 0.25, 0.25, 0.25]  # probability for each orientation
         target_joint_angles = { # = target angles [rad] when action = 0.0
             # left leg (6 dof)
             "l_hip_pitch_joint": -0.05,
@@ -214,14 +221,14 @@ class PiCfg( LeggedRobotCfg ):
             style_right_foot_displacement = 2.5 #7.5  updated to get better standing style
             style_knee_deviation = -0.25
             # style_shank_orientation = 10
-            style_ground_parallel = 8  # stronger emphasis on flat feet using orientation proxy
+            style_ground_parallel = 12  # stronger emphasis on flat feet using orientation proxy
             style_feet_distance = -10
             style_style_ang_vel_xy = 1
             style_soft_symmetry_action=-10  # re-enabled to encourage bilateral symmetry in actions
             style_soft_symmetry_body=2.5 # re-enabled to encourage bilateral posture symmetry
-            style_feet_contact_balance = 2.5
+            style_feet_contact_balance = 5  # increased for better bilateral balance
             style_feet_flatness = 0.0  # disabled, replaced by ankle pitch neutral
-            style_ankle_pitch_neutral = 2.5
+            style_ankle_pitch_neutral = 5  # increased to encourage flat-foot landing
 
             # post-task reward
             target_ang_vel_xy = 10
