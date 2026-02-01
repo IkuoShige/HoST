@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 # 環境変数の設定
 ENV DEBIAN_FRONTEND=noninteractive
