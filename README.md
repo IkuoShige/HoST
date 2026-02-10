@@ -159,7 +159,7 @@ Use `--env.scene.num-envs` to control the number of parallel environments. Start
 ### Play (Evaluate)
 
 ```bash
-uv run --env-file .env play Mjlab-StandingUp-Pi --load-run <run_dir> --load-checkpoint <model.pt>
+uv run play Mjlab-StandingUp-Pi --checkpoint-file logs/rsl_rl/pi_standing_up/2026-02-10_20-28-32/model_11999.pt --num_envs
 ```
 
 ### Architecture
