@@ -123,6 +123,23 @@ uv sync
 
 This installs mjlab and all dependencies into `HoST/.venv/`. The Isaac Gym conda environment is unaffected.
 
+#### Weights & Biases (shared PC)
+
+Training logs to wandb by default. On a shared PC, set your personal API key via `.env` (gitignored, so per-user):
+
+```bash
+cp .env.example .env
+# Edit .env and paste your key from https://wandb.ai/authorize
+```
+
+`.env` を読み込むには `uv run` の直後に `--env-file .env` を付けてください:
+
+```bash
+uv run --env-file .env train Mjlab-StandingUp-Pi --env.scene.num-envs 64
+```
+
+毎回指定するのが面倒な場合は `~/.bashrc` に `export UV_ENV_FILE=.env` を追加すると省略できます。To use tensorboard instead, pass `--agent.logger tensorboard`.
+
 ### Verify Installation
 
 ```bash
@@ -134,7 +151,7 @@ You should see `Mjlab-StandingUp-Pi` in the list of available environments.
 ### Train
 
 ```bash
-uv run train Mjlab-StandingUp-Pi --env.scene.num-envs 64
+uv run --env-file .env train Mjlab-StandingUp-Pi --env.scene.num-envs 64
 ```
 
 Use `--env.scene.num-envs` to control the number of parallel environments. Start with a small value (64) for a quick smoke test, then scale up (3072) for full training.
@@ -142,7 +159,7 @@ Use `--env.scene.num-envs` to control the number of parallel environments. Start
 ### Play (Evaluate)
 
 ```bash
-uv run play Mjlab-StandingUp-Pi --load-run <run_dir> --load-checkpoint <model.pt>
+uv run --env-file .env play Mjlab-StandingUp-Pi --load-run <run_dir> --load-checkpoint <model.pt>
 ```
 
 ### Architecture
@@ -151,6 +168,7 @@ The mjlab backend is implemented as an external plugin package (`host_mjlab`) un
 
 ```
 src/host_mjlab/
+├── rl/                   # PPOSmooth algorithm (smooth loss for stable training)
 ├── robots/pi_12dof/      # Robot asset definition (URDF path, actuators, PD gains)
 └── tasks/standing_up/    # Task implementation
     ├── config/pi/        # Pi robot config + task registration
@@ -170,7 +188,7 @@ The mjlab backend includes several adaptations for MuJoCo's contact dynamics, wh
 - **Contact solver parameters** (`solref=(0.002, 1.0)`, `solimp=(0.98, 0.999, ...)`): Tuned for stiffer contacts that better approximate PhysX behavior.
 - **Action clipping** (`clip_actions=1.0`): Clips raw policy outputs before scaling to prevent noise std explosion from causing extreme joint offsets.
 - **Log noise std** (`noise_std_type="log"`): Uses log-parameterized noise standard deviation with lower initial value (0.3 vs 0.8) for more stable exploration.
-- **PPOSmooth** (`class_name="PPOSmooth"`): Uses smooth value loss variant of PPO with reduced entropy coefficient (0.001) to prevent noise std explosion during training.
+- **PPOSmooth** (`host_mjlab.rl.ppo_smooth:PPOSmooth`): Extends upstream rsl_rl's PPO with a smooth loss term that penalizes large policy output changes when observations change slightly. This prevents noise std explosion during training. Paired with reduced entropy coefficient (0.001) and log-parameterized noise std. The smooth loss coefficients (`value_smoothness_coef=0.1`, `smoothness_upper_bound=1.0`, `smoothness_lower_bound=0.1`) are configured via `PPOSmoothAlgorithmCfg`, a subclass of the upstream `RslRlPpoAlgorithmCfg`.
 - **Contact force balance via `cfrc_ext`**: The `feet_contact_balance` reward reads MuJoCo's `cfrc_ext` (external contact forces on bodies) directly instead of using a sensor abstraction, providing more accurate foot force measurements.
 
 ## 🤖 Run HoST on Unitree G1
