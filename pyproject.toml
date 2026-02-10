@@ -1,24 +1,23 @@
-[project]
-name = "Host"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-  "numpy==1.23",
-  "torch==1.10.0+cu113; sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "tensorboard",
-  "tqdm",
-  "seaborn",
-  "setuptools==59.5.0",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[[tool.uv.index]]
-name = "torch-cuda"
-url = "https://download.pytorch.org/whl/cu113"
-explicit = true
+[project]
+name = "host"
+version = "0.2.0"
+description = "HoST: Humanoid Standing-up Control"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["mjlab"]
+
+# This is the core plugin mechanism: when mjlab is imported, it auto-discovers
+# and loads entry points in the "mjlab.tasks" group. This causes host_mjlab
+# to be imported, which registers the standing-up task.
+[project.entry-points."mjlab.tasks"]
+host_standing_up = "host_mjlab"
 
 [tool.uv.sources]
-torch = [
-    { index = "torch-cuda", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'"},
-]
+mjlab = { path = "../mjlab", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/host_mjlab"]

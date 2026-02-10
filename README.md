@@ -28,6 +28,7 @@ This is the official PyTorch implementation of the RSS conference paper "[**Lear
 - [🔥 News](#-news)
 - [📝 TODO List](#-todo-list)
 - [🛠️ Installation Instructions](#-installation-instructions)
+- [🚀 mjlab Backend (MuJoCo)](#-mjlab-backend-mujoco)
 - [🤖 Run HoST on Unitree G1](#-run-host-on-unitree-g1)
 - [🧭 Extend HoST to Other Humanoid Robots](#-extend-host-to-other-humanoid-robots-tips)
 - [✉️ Contact](#-contact)
@@ -103,6 +104,74 @@ cd legged_gym &&  pip install -e . && cd ..
 ```
 ### Erorr Catching
 Regarding potential installation errors, please refer to [this document](docs/ERROR.md) for solutions. 
+
+## 🚀 mjlab Backend (MuJoCo)
+
+HoST supports training with [mjlab](https://github.com/mujocolab/mjlab), a MuJoCo Warp-based GPU-accelerated framework. This backend runs independently from Isaac Gym and does not require NVIDIA Isaac Gym to be installed.
+
+### Requirements
+
+- Python >= 3.10
+- NVIDIA GPU with CUDA support
+
+### Setup
+
+```bash
+cd HoST
+uv sync
+```
+
+This installs mjlab and all dependencies into `HoST/.venv/`. The Isaac Gym conda environment is unaffected.
+
+### Verify Installation
+
+```bash
+uv run list_envs
+```
+
+You should see `Mjlab-StandingUp-Pi` in the list of available environments.
+
+### Train
+
+```bash
+uv run train Mjlab-StandingUp-Pi --env.scene.num-envs 64
+```
+
+Use `--env.scene.num-envs` to control the number of parallel environments. Start with a small value (64) for a quick smoke test, then scale up (3072) for full training.
+
+### Play (Evaluate)
+
+```bash
+uv run play Mjlab-StandingUp-Pi --load-run <run_dir> --load-checkpoint <model.pt>
+```
+
+### Architecture
+
+The mjlab backend is implemented as an external plugin package (`host_mjlab`) under `src/host_mjlab/`. It uses mjlab's entry-point mechanism: when mjlab is imported, HoST's standing-up task is automatically discovered and registered.
+
+```
+src/host_mjlab/
+├── robots/pi_12dof/      # Robot asset definition (URDF path, actuators, PD gains)
+└── tasks/standing_up/    # Task implementation
+    ├── config/pi/        # Pi robot config + task registration
+    ├── managers/         # GaussianProductRewardManager, UnactuatedMaskingObservationManager
+    ├── mdp/              # Rewards, observations, actions, events, terminations
+    └── rl/               # Custom runner with curriculum state persistence
+```
+
+Robot mesh and URDF assets in `legged_gym/resources/robots/` are shared between both backends.
+
+### MuJoCo-specific Tuning
+
+The mjlab backend includes several adaptations for MuJoCo's contact dynamics, which differ from Isaac Gym's PhysX:
+
+- **Solver iterations** (`iterations=50`, `ls_iterations=100`): Higher than defaults to match PhysX contact stiffness and ensure stable constraint convergence.
+- **Foot collision with rolling friction** (`condim=6`): PhysX's rigid contacts naturally make tiptoe unstable (small support polygon). MuJoCo's soft contacts with `condim=3` allow unrealistic tiptoe balance. Adding rolling friction (`condim=6`) penalizes small contact patches, restoring the flat-foot preference.
+- **Contact solver parameters** (`solref=(0.002, 1.0)`, `solimp=(0.98, 0.999, ...)`): Tuned for stiffer contacts that better approximate PhysX behavior.
+- **Action clipping** (`clip_actions=1.0`): Clips raw policy outputs before scaling to prevent noise std explosion from causing extreme joint offsets.
+- **Log noise std** (`noise_std_type="log"`): Uses log-parameterized noise standard deviation with lower initial value (0.3 vs 0.8) for more stable exploration.
+- **PPOSmooth** (`class_name="PPOSmooth"`): Uses smooth value loss variant of PPO with reduced entropy coefficient (0.001) to prevent noise std explosion during training.
+- **Contact force balance via `cfrc_ext`**: The `feet_contact_balance` reward reads MuJoCo's `cfrc_ext` (external contact forces on bodies) directly instead of using a sensor abstraction, providing more accurate foot force measurements.
 
 ## 🤖 Run HoST on Unitree G1
 ### Overview of Main Simulation Motions
