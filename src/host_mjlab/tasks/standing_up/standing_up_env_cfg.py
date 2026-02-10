@@ -305,7 +305,7 @@ def make_standing_up_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.ground_parallel,
       weight=12.0,
       group="style",
-      params={"decay_rate": 5.0},
+      params={"decay_rate": 5.0, "post_task": False},
     ),
     "style_feet_distance": GroupedRewardTermCfg(
       func=mdp.feet_distance,

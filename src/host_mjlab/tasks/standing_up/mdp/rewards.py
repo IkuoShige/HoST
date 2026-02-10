@@ -483,6 +483,7 @@ def ground_parallel(
   env: ManagerBasedRlEnv,
   decay_rate: float = 5.0,
   phase3_height: float = 0.34,
+  post_task: bool = False,
   left_foot_body: str = "l_ankle_pitch_link",
   right_foot_body: str = "r_ankle_pitch_link",
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -495,6 +496,8 @@ def ground_parallel(
     env: The environment.
     decay_rate: Exponential decay rate. Default 5.0.
     phase3_height: Height threshold for post-task. Default 0.34m.
+    post_task: If True, disable reward when fully standing. Default False
+      (keeps reward active after standing, matching IsaacGym behavior).
     left_foot_body: Name of left foot body.
     right_foot_body: Name of right foot body.
     asset_cfg: Asset configuration.
@@ -525,9 +528,10 @@ def ground_parallel(
   rp_mean = 0.5 * (left_rp + right_rp)
   reward = torch.exp(-decay_rate * rp_mean)
 
-  # Disable reward when fully standing (post-task).
-  standup = asset.data.root_link_pos_w[:, 2] > phase3_height
-  reward = reward * (~standup) + standup.float()
+  if post_task:
+    # Disable reward when fully standing (post-task).
+    standup = asset.data.root_link_pos_w[:, 2] > phase3_height
+    reward = reward * (~standup) + standup.float()
 
   return reward
 
