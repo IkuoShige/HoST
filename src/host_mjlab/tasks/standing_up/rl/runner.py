@@ -77,19 +77,24 @@ class StandingUpRunner(MjlabOnPolicyRunner):
     super().save(path, infos)
 
   def load(
-    self, path: str, load_optimizer: bool = True, map_location: str | None = None
+    self,
+    path: str,
+    load_cfg: dict | None = None,
+    strict: bool = True,
+    map_location: str | None = None,
   ) -> dict | None:
     """Load checkpoint and restore curriculum state.
 
     Args:
       path: Path to load checkpoint from.
-      load_optimizer: Whether to load optimizer state.
+      load_cfg: Optional dict specifying what to load.
+      strict: Whether to strictly enforce state_dict matching.
       map_location: Device mapping for loading.
 
     Returns:
       Info dict from checkpoint if present.
     """
-    infos = super().load(path, load_optimizer, map_location)
+    infos = super().load(path, load_cfg, strict, map_location)
 
     if infos and "curriculum_state" in infos:
       curriculum_state = infos["curriculum_state"]

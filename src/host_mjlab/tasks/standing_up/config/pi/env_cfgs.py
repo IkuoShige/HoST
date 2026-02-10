@@ -175,6 +175,7 @@ def pi_standing_up_env_cfg(
 
   # Apply play mode overrides.
   if play:
+    cfg.scene.num_envs = 1
     cfg.episode_length_s = int(1e9)
     cfg.observations["policy"].enable_corruption = False
     cfg.events.pop("apply_pulling_force", None)
