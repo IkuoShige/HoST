@@ -1,10 +1,22 @@
 """RL training configuration for Pi robot standing-up task."""
 
+from dataclasses import dataclass
+
 from mjlab.rl.config import (
   RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
   RslRlPpoAlgorithmCfg,
 )
+
+
+@dataclass
+class PPOSmoothAlgorithmCfg(RslRlPpoAlgorithmCfg):
+  """PPO algorithm config with smooth loss parameters."""
+
+  class_name: str = "host_mjlab.rl.ppo_smooth:PPOSmooth"
+  value_smoothness_coef: float = 0.1
+  smoothness_upper_bound: float = 1.0
+  smoothness_lower_bound: float = 0.1
 
 
 def make_pi_standing_up_rl_cfg() -> RslRlOnPolicyRunnerCfg:
@@ -21,7 +33,6 @@ def make_pi_standing_up_rl_cfg() -> RslRlOnPolicyRunnerCfg:
     experiment_name="pi_standing_up",
     run_name="",
     logger="wandb",
-    wandb_project="mjlab",
     wandb_tags=("standing_up", "pi"),
     obs_groups={
       "actor": ("policy",),
@@ -41,8 +52,7 @@ def make_pi_standing_up_rl_cfg() -> RslRlOnPolicyRunnerCfg:
       activation="elu",
       stochastic=False,
     ),
-    algorithm=RslRlPpoAlgorithmCfg(
-      class_name="PPOSmooth",  # Use PPOSmooth for stable training.
+    algorithm=PPOSmoothAlgorithmCfg(
       num_learning_epochs=5,
       num_mini_batches=4,
       learning_rate=1e-3,
@@ -55,12 +65,9 @@ def make_pi_standing_up_rl_cfg() -> RslRlOnPolicyRunnerCfg:
       value_loss_coef=1.0,
       use_clipped_value_loss=True,
       clip_param=0.2,
-      # Smooth loss parameters matching Isaac Gym HoST.
-      # Critical for stable training and preventing noise std explosion.
-      # Note: These require PPOSmooth support in RSL-RL.
-      # value_smoothness_coef=0.1,
-      # smoothness_upper_bound=1.0,
-      # smoothness_lower_bound=0.1,
+      value_smoothness_coef=0.1,
+      smoothness_upper_bound=1.0,
+      smoothness_lower_bound=0.1,
     ),
   )
 
