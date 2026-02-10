@@ -33,6 +33,7 @@ def make_pi_standing_up_rl_cfg() -> RslRlOnPolicyRunnerCfg:
     experiment_name="pi_standing_up",
     run_name="",
     logger="wandb",
+    wandb_project="mjlab",
     wandb_tags=("standing_up", "pi"),
     obs_groups={
       "actor": ("policy",),
