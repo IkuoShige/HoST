@@ -538,7 +538,7 @@ def ground_parallel(
 
 def feet_distance(
   env: ManagerBasedRlEnv,
-  threshold: float = 0.45,
+  threshold: float = 0.10,
   left_foot_body: str = "l_ankle_pitch_link",
   right_foot_body: str = "r_ankle_pitch_link",
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -547,7 +547,7 @@ def feet_distance(
 
   Args:
     env: The environment.
-    threshold: Minimum distance threshold. Default 0.45m.
+    threshold: Minimum distance threshold. Default 0.10m.
     left_foot_body: Name of left foot body.
     right_foot_body: Name of right foot body.
     asset_cfg: Asset configuration.
@@ -568,7 +568,7 @@ def feet_distance(
   right_pos = env.sim.data.xpos[:, body_ids[right_ids[0]], :]
 
   distance = torch.norm(left_pos - right_pos, dim=-1)
-  return (distance > threshold).float()
+  return (distance < threshold).float()
 
 
 def feet_contact_balance(
