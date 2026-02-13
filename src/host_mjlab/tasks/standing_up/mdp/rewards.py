@@ -539,15 +539,20 @@ def ground_parallel(
 def feet_distance(
   env: ManagerBasedRlEnv,
   threshold: float = 0.10,
+  phase3_height: float = 0.34,
   left_foot_body: str = "l_ankle_pitch_link",
   right_foot_body: str = "r_ankle_pitch_link",
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Penalize feet being too close together.
+  """Penalize feet being too close together after standing up.
+
+  Only active when base height exceeds phase3_height, so the penalty
+  does not interfere with the standing-up motion.
 
   Args:
     env: The environment.
     threshold: Minimum distance threshold. Default 0.10m.
+    phase3_height: Base height above which penalty is applied. Default 0.34m.
     left_foot_body: Name of left foot body.
     right_foot_body: Name of right foot body.
     asset_cfg: Asset configuration.
@@ -568,7 +573,8 @@ def feet_distance(
   right_pos = env.sim.data.xpos[:, body_ids[right_ids[0]], :]
 
   distance = torch.norm(left_pos - right_pos, dim=-1)
-  return (distance < threshold).float()
+  standing = asset.data.root_link_pos_w[:, 2] > phase3_height
+  return (distance < threshold).float() * standing
 
 
 def feet_contact_balance(

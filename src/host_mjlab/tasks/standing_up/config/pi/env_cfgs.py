@@ -156,6 +156,7 @@ def pi_standing_up_env_cfg(
     "task_orientation": ["phase1_height"],
     "style_feet_contact_balance": ["phase2_height"],
     "style_ankle_pitch_neutral": ["phase2_height"],
+    "style_feet_distance": ["phase3_height"],
     "style_soft_symmetry_action": ["phase3_height"],
     "style_soft_symmetry_body": ["phase3_height"],
     "target_ang_vel_xy": ["phase3_height"],
