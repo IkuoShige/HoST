@@ -835,9 +835,85 @@ def knee_deviation(
   return violated.float()
 
 
+def feet_vertical_velocity(
+  env: ManagerBasedRlEnv,
+  height_threshold: float = 0.05,
+  left_foot_body: str = "l_ankle_pitch_link",
+  right_foot_body: str = "r_ankle_pitch_link",
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize vertical velocity of feet when near the ground.
+
+  Discourages contact cycling (repeated ground contact/release) by penalizing
+  vertical foot motion only when the foot is close to the ground surface.
+
+  Args:
+    env: The environment.
+    height_threshold: Maximum height to apply penalty. Default 0.05m.
+    left_foot_body: Name of left foot body.
+    right_foot_body: Name of right foot body.
+    asset_cfg: Asset configuration.
+
+  Returns:
+    Penalty tensor of shape (num_envs,).
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  left_ids, _ = asset.find_bodies(left_foot_body)
+  right_ids, _ = asset.find_bodies(right_foot_body)
+
+  if not left_ids or not right_ids:
+    return torch.zeros(env.num_envs, device=env.device)
+
+  body_ids = asset.indexing.body_ids
+
+  # Body positions (z).
+  left_z = env.sim.data.xpos[:, body_ids[left_ids[0]], 2]
+  right_z = env.sim.data.xpos[:, body_ids[right_ids[0]], 2]
+
+  # Body velocities (z) via body_link_vel_w: (num_envs, num_local_bodies, 6).
+  vel_w = asset.data.body_link_vel_w
+  left_vz = torch.abs(vel_w[:, left_ids[0], 2])
+  right_vz = torch.abs(vel_w[:, right_ids[0], 2])
+
+  # Only penalize when near ground.
+  left_near = (left_z < height_threshold).float()
+  right_near = (right_z < height_threshold).float()
+
+  return left_vz * left_near + right_vz * right_near
+
+
 ##
 # Post-task (target) rewards.
 ##
+
+
+def default_pose_tracking(
+  env: ManagerBasedRlEnv,
+  sigma: float = -2.0,
+  phase3_height: float = 0.34,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward tracking default joint positions after standing up.
+
+  Encourages the robot to return to its default stance after standing,
+  which maintains natural stance width and prevents heel contact.
+
+  Args:
+    env: The environment.
+    sigma: Exponential decay sigma. Default -2.0.
+    phase3_height: Minimum base height to apply reward. Default 0.34m.
+    asset_cfg: Asset configuration.
+
+  Returns:
+    Reward tensor of shape (num_envs,).
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  default_pos = asset.data.default_joint_pos
+  current_pos = asset.data.joint_pos
+  error = torch.mean(torch.square(current_pos - default_pos), dim=1)
+  reward = torch.exp(sigma * error)
+  standing = asset.data.root_link_pos_w[:, 2] > phase3_height
+  return reward * standing
 
 
 def target_ang_vel_xy(

@@ -309,9 +309,15 @@ def make_standing_up_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "style_feet_distance": GroupedRewardTermCfg(
       func=mdp.feet_distance,
-      weight=-10.0,
+      weight=0.0,
       group="style",
       params={"threshold": 0.10},
+    ),
+    "style_feet_vertical_velocity": GroupedRewardTermCfg(
+      func=mdp.feet_vertical_velocity,
+      weight=-1.0,
+      group="style",
+      params={"height_threshold": 0.05},
     ),
     "style_style_ang_vel_xy": GroupedRewardTermCfg(
       func=mdp.style_ang_vel_xy,
@@ -347,6 +353,12 @@ def make_standing_up_env_cfg() -> ManagerBasedRlEnvCfg:
       params={"target": -0.1, "decay_rate": 10.0},
     ),
     # Target (post-task) rewards (additive) -- matches HoST_v2 exactly.
+    "target_default_pose": GroupedRewardTermCfg(
+      func=mdp.default_pose_tracking,
+      weight=5.0,
+      group="target",
+      params={"sigma": -2.0},
+    ),
     "target_ang_vel_xy": GroupedRewardTermCfg(
       func=mdp.target_ang_vel_xy,
       weight=10.0,

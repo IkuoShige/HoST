@@ -134,6 +134,14 @@ def pi_standing_up_env_cfg(
     cfg.rewards["style_feet_distance"].params["left_foot_body"] = "l_ankle_pitch_link"
     cfg.rewards["style_feet_distance"].params["right_foot_body"] = "r_ankle_pitch_link"
 
+  if "style_feet_vertical_velocity" in cfg.rewards:
+    cfg.rewards["style_feet_vertical_velocity"].params["left_foot_body"] = (
+      "l_ankle_pitch_link"
+    )
+    cfg.rewards["style_feet_vertical_velocity"].params["right_foot_body"] = (
+      "r_ankle_pitch_link"
+    )
+
   if "target_feet_height_var" in cfg.rewards:
     cfg.rewards["target_feet_height_var"].params["left_foot_body"] = (
       "l_ankle_pitch_link"
@@ -159,6 +167,7 @@ def pi_standing_up_env_cfg(
     "style_feet_distance": ["phase3_height"],
     "style_soft_symmetry_action": ["phase3_height"],
     "style_soft_symmetry_body": ["phase3_height"],
+    "target_default_pose": ["phase3_height"],
     "target_ang_vel_xy": ["phase3_height"],
     "target_lin_vel_xy": ["phase3_height"],
     "target_orientation": ["phase3_height"],
