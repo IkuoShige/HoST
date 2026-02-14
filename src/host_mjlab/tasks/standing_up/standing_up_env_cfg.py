@@ -319,6 +319,12 @@ def make_standing_up_env_cfg() -> ManagerBasedRlEnvCfg:
       group="style",
       params={"height_threshold": 0.05},
     ),
+    "style_feet_sliding": GroupedRewardTermCfg(
+      func=mdp.feet_sliding,
+      weight=-2.0,
+      group="style",
+      params={"height_threshold": 0.05},
+    ),
     "style_style_ang_vel_xy": GroupedRewardTermCfg(
       func=mdp.style_ang_vel_xy,
       weight=1.0,

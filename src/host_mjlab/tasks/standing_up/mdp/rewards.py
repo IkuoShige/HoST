@@ -882,6 +882,54 @@ def feet_vertical_velocity(
   return left_vz * left_near + right_vz * right_near
 
 
+def feet_sliding(
+  env: ManagerBasedRlEnv,
+  height_threshold: float = 0.05,
+  left_foot_body: str = "l_ankle_pitch_link",
+  right_foot_body: str = "r_ankle_pitch_link",
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize horizontal velocity of feet when in contact with the ground.
+
+  Discourages foot sliding/dragging during standing up, which would fail in
+  sim2real due to real-world friction. Encourages the robot to lift feet
+  before repositioning them.
+
+  Args:
+    env: The environment.
+    height_threshold: Maximum foot height to apply penalty. Default 0.05m.
+    left_foot_body: Name of left foot body.
+    right_foot_body: Name of right foot body.
+    asset_cfg: Asset configuration.
+
+  Returns:
+    Penalty tensor of shape (num_envs,).
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  left_ids, _ = asset.find_bodies(left_foot_body)
+  right_ids, _ = asset.find_bodies(right_foot_body)
+
+  if not left_ids or not right_ids:
+    return torch.zeros(env.num_envs, device=env.device)
+
+  body_ids = asset.indexing.body_ids
+
+  # Body positions (z).
+  left_z = env.sim.data.xpos[:, body_ids[left_ids[0]], 2]
+  right_z = env.sim.data.xpos[:, body_ids[right_ids[0]], 2]
+
+  # Body velocities (xy) via body_link_vel_w: (num_envs, num_local_bodies, 6).
+  vel_w = asset.data.body_link_vel_w
+  left_vxy = torch.norm(vel_w[:, left_ids[0], :2], dim=-1)
+  right_vxy = torch.norm(vel_w[:, right_ids[0], :2], dim=-1)
+
+  # Only penalize when near ground.
+  left_near = (left_z < height_threshold).float()
+  right_near = (right_z < height_threshold).float()
+
+  return left_vxy * left_near + right_vxy * right_near
+
+
 ##
 # Post-task (target) rewards.
 ##

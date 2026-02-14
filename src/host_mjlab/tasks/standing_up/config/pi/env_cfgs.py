@@ -142,6 +142,10 @@ def pi_standing_up_env_cfg(
       "r_ankle_pitch_link"
     )
 
+  if "style_feet_sliding" in cfg.rewards:
+    cfg.rewards["style_feet_sliding"].params["left_foot_body"] = "l_ankle_pitch_link"
+    cfg.rewards["style_feet_sliding"].params["right_foot_body"] = "r_ankle_pitch_link"
+
   if "target_feet_height_var" in cfg.rewards:
     cfg.rewards["target_feet_height_var"].params["left_foot_body"] = (
       "l_ankle_pitch_link"
