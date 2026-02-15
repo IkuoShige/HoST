@@ -142,6 +142,14 @@ def pi_standing_up_env_cfg(
       "r_ankle_pitch_link"
     )
 
+  if "style_feet_min_distance" in cfg.rewards:
+    cfg.rewards["style_feet_min_distance"].params["left_foot_body"] = (
+      "l_ankle_pitch_link"
+    )
+    cfg.rewards["style_feet_min_distance"].params["right_foot_body"] = (
+      "r_ankle_pitch_link"
+    )
+
   if "style_feet_sliding" in cfg.rewards:
     cfg.rewards["style_feet_sliding"].params["left_foot_body"] = "l_ankle_pitch_link"
     cfg.rewards["style_feet_sliding"].params["right_foot_body"] = "r_ankle_pitch_link"

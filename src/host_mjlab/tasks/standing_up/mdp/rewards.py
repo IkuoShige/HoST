@@ -577,6 +577,45 @@ def feet_distance(
   return (distance < threshold).float() * standing
 
 
+def feet_min_distance(
+  env: ManagerBasedRlEnv,
+  min_distance: float = 0.10,
+  left_foot_body: str = "l_ankle_pitch_link",
+  right_foot_body: str = "r_ankle_pitch_link",
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize feet being too close together (always active).
+
+  Unlike feet_distance which is binary and phase3-gated, this provides a
+  continuous linear penalty active throughout the entire episode to prevent
+  foot-to-foot interference during standing up.
+
+  Args:
+    env: The environment.
+    min_distance: Minimum allowed distance between feet. Default 0.10m.
+    left_foot_body: Name of left foot body.
+    right_foot_body: Name of right foot body.
+    asset_cfg: Asset configuration.
+
+  Returns:
+    Penalty tensor of shape (num_envs,).
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+
+  left_ids, _ = asset.find_bodies(left_foot_body)
+  right_ids, _ = asset.find_bodies(right_foot_body)
+
+  if not left_ids or not right_ids:
+    return torch.zeros(env.num_envs, device=env.device)
+
+  body_ids = asset.indexing.body_ids
+  left_pos = env.sim.data.xpos[:, body_ids[left_ids[0]], :]
+  right_pos = env.sim.data.xpos[:, body_ids[right_ids[0]], :]
+
+  distance = torch.norm(left_pos - right_pos, dim=-1)
+  return torch.clamp(min_distance - distance, min=0.0)
+
+
 def feet_contact_balance(
   env: ManagerBasedRlEnv,
   decay_rate: float = 5.0,
