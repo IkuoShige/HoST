@@ -76,8 +76,11 @@ class LeggedRobot_Pi(BaseTask):
         self._init_buffers()
         self._prepare_reward_function()
         self.init_done = True
-        self.unactuated_time = self.cfg.env.unactuated_timesteps
-        self.unactuated_time *= 0.02 / self.dt
+        self.unactuated_time_value = self.cfg.env.unactuated_timesteps * (0.02 / self.dt)
+        self.unactuated_time = torch.full(
+            (self.num_envs,), self.unactuated_time_value,
+            dtype=torch.float, device=self.device
+        )
         self.is_gaussian = cfg.rewards.is_gaussian
 
     def step(self, actions):
@@ -92,7 +95,7 @@ class LeggedRobot_Pi(BaseTask):
         self.render()
 
         for _ in range(self.cfg.control.decimation):
-            self.actions *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time 
+            self.actions *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
 
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
@@ -108,7 +111,7 @@ class LeggedRobot_Pi(BaseTask):
                 force_tensor = torch.zeros([self.num_envs, self.num_bodies, 3], device=self.device)
                 force_tensor[:, self.base_indices, 2] = self.force 
 
-                force_tensor *= (self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time).unsqueeze(1)
+                force_tensor *= (self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)).unsqueeze(1)
                 if not self.cfg.curriculum.no_orientation:
                     force_tensor *= (self.projected_gravity[:, 2] < -0.8).unsqueeze(1).unsqueeze(1)
                 force_tensor = gymtorch.unwrap_tensor(force_tensor)
@@ -253,6 +256,12 @@ class LeggedRobot_Pi(BaseTask):
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.real_episode_length_buf[env_ids] = 0
+        powered_mask = torch.rand(len(env_ids), device=self.device) < self.cfg.env.powered_start_ratio
+        self.unactuated_time[env_ids] = torch.where(
+            powered_mask,
+            torch.zeros(len(env_ids), device=self.device),
+            torch.full((len(env_ids),), self.unactuated_time_value, device=self.device),
+        )
         self.reset_buf[env_ids] = 1
         self.old_headheight[env_ids] = 0
         self.max_headheight[env_ids] = 0
@@ -337,7 +346,7 @@ class LeggedRobot_Pi(BaseTask):
         if self.add_noise:
             current_obs += (2 * torch.rand_like(current_obs) - 1) * self.noise_scale_vec
 
-        current_obs *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time
+        current_obs *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)
         self.obs_buf = torch.cat((self.obs_buf[:, self.num_one_step_obs:self.actor_proprioceptive_obs_length], current_obs), dim=-1)
         # print('obs_buf',self.obs_buf)
     def create_sim(self):

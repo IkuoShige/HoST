@@ -54,6 +54,7 @@ class PiCfg( LeggedRobotCfg ):
         num_observations = num_actor_history * num_one_step_observations
         episode_length_s = 10 # episode length in seconds
         unactuated_timesteps = 30
+        powered_start_ratio = 0.5
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
