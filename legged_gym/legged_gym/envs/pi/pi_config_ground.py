@@ -54,7 +54,7 @@ class PiCfg( LeggedRobotCfg ):
         num_observations = num_actor_history * num_one_step_observations
         episode_length_s = 10 # episode length in seconds
         unactuated_timesteps = 30
-        powered_start_ratio = 0.5
+        powered_drop_ratio = 0.5  # 落下中に姿勢維持するenvの割合（残りは脱力）
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
@@ -235,7 +235,7 @@ class PiCfg( LeggedRobotCfg ):
             target_ang_vel_xy = 10
             target_lin_vel_xy = 10
             target_feet_height_var = 2.5
-            # target_target_lower_dof_pos = 30  #  updated to get better standing style
+            target_target_lower_dof_pos = 20  # デフォルト関節角度維持を促進
             target_target_orientation = 10
             target_target_base_height = 10
             # target_target_knee_angle = 10 #  updated to get better standing style

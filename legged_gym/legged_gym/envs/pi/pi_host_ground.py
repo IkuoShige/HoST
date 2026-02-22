@@ -82,6 +82,7 @@ class LeggedRobot_Pi(BaseTask):
             dtype=torch.float, device=self.device
         )
         self.is_gaussian = cfg.rewards.is_gaussian
+        self.is_powered_drop = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def step(self, actions):
         """ Apply actions, simulate, call self.post_physics_step()
@@ -97,6 +98,25 @@ class LeggedRobot_Pi(BaseTask):
         for _ in range(self.cfg.control.decimation):
             self.actions *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
+
+            # ドロップフェーズ中のトルク制御:
+            # - limp (is_powered_drop=False): ゼロトルク（ラグドール）
+            # - hold-pose (is_powered_drop=True): PD制御でデフォルト関節角度を維持
+            is_unactuated = (self.real_episode_length_buf <= self.unactuated_time)
+            if is_unactuated.any():
+                hold_pose_torques = (
+                    self.p_gains * self.Kp_factors * (self.default_dof_pos - self.dof_pos)
+                    - self.d_gains * self.Kd_factors * self.dof_vel
+                )
+                hold_pose_torques = self.motor_strength * hold_pose_torques + self.actuation_offset
+                hold_pose_torques = torch.clip(hold_pose_torques, -self.torque_limits, self.torque_limits)
+
+                unactuated_torques = torch.where(
+                    self.is_powered_drop.unsqueeze(1),
+                    hold_pose_torques,
+                    torch.zeros_like(self.torques),
+                )
+                self.torques[is_unactuated] = unactuated_torques[is_unactuated]
 
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             self.gym.simulate(self.sim)
@@ -256,12 +276,8 @@ class LeggedRobot_Pi(BaseTask):
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.real_episode_length_buf[env_ids] = 0
-        powered_mask = torch.rand(len(env_ids), device=self.device) < self.cfg.env.powered_start_ratio
-        self.unactuated_time[env_ids] = torch.where(
-            powered_mask,
-            torch.zeros(len(env_ids), device=self.device),
-            torch.full((len(env_ids),), self.unactuated_time_value, device=self.device),
-        )
+        self.unactuated_time[env_ids] = self.unactuated_time_value  # 全envでドロップフェーズを実行
+        self.is_powered_drop[env_ids] = torch.rand(len(env_ids), device=self.device) < self.cfg.env.powered_drop_ratio
         self.reset_buf[env_ids] = 1
         self.old_headheight[env_ids] = 0
         self.max_headheight[env_ids] = 0
