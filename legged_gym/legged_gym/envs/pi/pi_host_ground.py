@@ -1366,9 +1366,11 @@ class LeggedRobot_Pi(BaseTask):
         standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
         return torch.exp(torch.abs(base_height - self.cfg.rewards.base_height_target) * - 20) * standup
     def _reward_target_lower_dof_pos(self):
-        mse = torch.sum(torch.square(self.dof_pos[:, :] - self.target_dof_pos[:, :]), dim=-1)
-        standup =self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
-        reward = torch.exp(mse * self.cfg.rewards.target_dof_pos_sigma) 
+        dof_pos_err = self.dof_pos - self.target_dof_pos
+        dof_pos_err[:, self.hip_pitch_joint_indices.long()] = 0.0  # hip_pitchは除外（orientationとang_vel報酬が担当）
+        mse = torch.sum(torch.square(dof_pos_err), dim=-1)
+        standup = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
+        reward = torch.exp(mse * self.cfg.rewards.target_dof_pos_sigma)
         reward = reward * standup
         return reward
     def _reward_target_upper_dof_pos(self):
