@@ -234,6 +234,7 @@ class PiCfg( LeggedRobotCfg ):
             # post-task reward
             target_ang_vel_xy = 10
             target_lin_vel_xy = 10
+            target_lin_vel_z = 10
             target_feet_height_var = 2.5
             target_target_lower_dof_pos = 20  # デフォルト関節角度維持を促進
             target_target_orientation = 10

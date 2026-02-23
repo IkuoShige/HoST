@@ -1348,6 +1348,12 @@ class LeggedRobot_Pi(BaseTask):
 
         return reward
 
+    def _reward_lin_vel_z(self):
+        # Penalize z axis base linear velocity (vertical bouncing)
+        base_height = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
+        reward = torch.exp(torch.square(self.base_lin_vel[:, 2]) * -5) * base_height
+        return reward
+
     def _reward_feet_height_var(self):
         left_foot_height = self.rigid_body_states[:, self.left_foot_indices, 2].clone() * 10
         right_foot_height = self.rigid_body_states[:, self.right_foot_indices, 2].clone() * 10
