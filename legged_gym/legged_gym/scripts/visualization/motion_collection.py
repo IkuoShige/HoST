@@ -43,7 +43,7 @@ def play(args):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
 
-        if env.real_episode_length_buf[0] >= env.unactuated_time:
+        if env.real_episode_length_buf[0] >= env.unactuated_time[0]:
             root_state.append(env.rigid_body_states[0].detach().cpu().numpy())
 
         if len(root_state) == 200:

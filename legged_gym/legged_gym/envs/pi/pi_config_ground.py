@@ -5,38 +5,45 @@ class PiCfg( LeggedRobotCfg ):
     class init_state( LeggedRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.351] # x,y,z [m], updated to match Piwaist
         rot = [0.0, -1, 0, 1.0] # x,y,z,w [quat]
+        # Random initial orientation settings (4 directions)
+        random_initial_orientation = True
+        supine_rot = [0.0, -1, 0, 1.0]      # supine (back down)
+        prone_rot = [0.0, 1, 0, 1.0]        # prone (face down)
+        left_side_rot = [1.0, 0, 0, 1.0]    # left side down
+        right_side_rot = [-1.0, 0, 0, 1.0]  # right side down
+        orientation_weights = [0.25, 0.25, 0.25, 0.25]  # probability for each orientation
         target_joint_angles = { # = target angles [rad] when action = 0.0
             # left leg (6 dof)
-            "l_hip_pitch_joint": -0.0,
+            "l_hip_pitch_joint": -0.05,
             "l_hip_roll_joint": 0.0,
             "l_thigh_joint": 0.0,
-            "l_calf_joint": 0.0,
-            "l_ankle_pitch_joint": -0.0,
-            "l_ankle_roll_joint": 0,
+            "l_calf_joint": 0.3,
+            "l_ankle_pitch_joint": -0.1,
+            "l_ankle_roll_joint": 0.0,
             # right leg (6 dof)
-            "r_hip_pitch_joint": -0.0,
+            "r_hip_pitch_joint": -0.05,
             "r_hip_roll_joint": 0.0,
             "r_thigh_joint": 0.0,
-            "r_calf_joint": 0.0,
-            "r_ankle_pitch_joint": -0.0,
-            "r_ankle_roll_joint": 0,
+            "r_calf_joint": 0.3,
+            "r_ankle_pitch_joint": -0.1,
+            "r_ankle_roll_joint": 0.0,
         }
 
         default_joint_angles = {
             # left leg (6 dof)
-            "l_hip_pitch_joint": -0.0,
+            "l_hip_pitch_joint": -0.05,
             "l_hip_roll_joint": 0.0,
             "l_thigh_joint": 0.0,
-            "l_calf_joint": 0.0,
-            "l_ankle_pitch_joint": -0.0,
-            "l_ankle_roll_joint": 0,
+            "l_calf_joint": 0.3,
+            "l_ankle_pitch_joint": -0.1,
+            "l_ankle_roll_joint": 0.0,
             # right leg (6 dof)
-            "r_hip_pitch_joint": -0.0,
+            "r_hip_pitch_joint": -0.05,
             "r_hip_roll_joint": 0.0,
             "r_thigh_joint": 0.0,
-            "r_calf_joint": 0.0,
-            "r_ankle_pitch_joint": -0.0,
-            "r_ankle_roll_joint": 0,
+            "r_calf_joint": 0.3,
+            "r_ankle_pitch_joint": -0.1,
+            "r_ankle_roll_joint": 0.0,
         } 
 
     class env(LeggedRobotCfg.env):
@@ -47,6 +54,7 @@ class PiCfg( LeggedRobotCfg ):
         num_observations = num_actor_history * num_one_step_observations
         episode_length_s = 10 # episode length in seconds
         unactuated_timesteps = 30
+        powered_drop_ratio = 0.5  # 落下中に姿勢維持するenvの割合（残りは脱力）
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
@@ -56,8 +64,8 @@ class PiCfg( LeggedRobotCfg ):
             "hip_roll": 15,
             "thigh": 15,
             "calf": 30,
-            "ankle_pitch": 12,
-            "ankle_roll": 5,
+            "ankle_pitch": 18,  # increased for better flat-foot stability
+            "ankle_roll": 8,     # slightly increased for mediolateral control
         }  # [N*m/rad]
         damping = {
             "hip_pitch": 0.2,
@@ -169,6 +177,8 @@ class PiCfg( LeggedRobotCfg ):
         right_foot_displacement_sigma = -2#-200 updated to get better standing style
         target_dof_pos_sigma = -0.1
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
+        # reduce initial curriculum force slightly for stability
+        
 
         reward_groups = ['task', 'regu', 'style', 'target']
         num_reward_groups = len(reward_groups)
@@ -212,17 +222,21 @@ class PiCfg( LeggedRobotCfg ):
             style_right_foot_displacement = 2.5 #7.5  updated to get better standing style
             style_knee_deviation = -0.25
             # style_shank_orientation = 10
-            style_ground_parallel = 20
+            style_ground_parallel = 12  # stronger emphasis on flat feet using orientation proxy
             style_feet_distance = -10
             style_style_ang_vel_xy = 1
-            # style_soft_symmetry_action=-10  #  updated to get better standing style
-            # style_soft_symmetry_body=2.5 # updated to get better standing style
+            style_soft_symmetry_action=-10  # re-enabled to encourage bilateral symmetry in actions
+            style_soft_symmetry_body=2.5 # re-enabled to encourage bilateral posture symmetry
+            style_feet_contact_balance = 5  # increased for better bilateral balance
+            style_feet_flatness = 0.0  # disabled, replaced by ankle pitch neutral
+            style_ankle_pitch_neutral = 5  # increased to encourage flat-foot landing
 
             # post-task reward
             target_ang_vel_xy = 10
             target_lin_vel_xy = 10
+            target_lin_vel_z = 10
             target_feet_height_var = 2.5
-            # target_target_lower_dof_pos = 30  #  updated to get better standing style
+            target_target_lower_dof_pos = 20  # デフォルト関節角度維持を促進
             target_target_orientation = 10
             target_target_base_height = 10
             # target_target_knee_angle = 10 #  updated to get better standing style
@@ -270,7 +284,7 @@ class PiCfg( LeggedRobotCfg ):
     
     class curriculum:
         pull_force = True
-        force = 15 # 100*2=200 is the actuatl force because of a extra keyframe torso link
+        force = 12 # reduced from 15 to avoid locking-in toe strategy
         dof_vel_limit = 300
         base_vel_limit = 20
         threshold_height = 0.37
@@ -285,8 +299,8 @@ class PiCfg( LeggedRobotCfg ):
         class physx:
             num_threads = 10
             solver_type = 1  # 0: pgs, 1: tgs
-            num_position_iterations = 8
-            num_velocity_iterations = 1
+            num_position_iterations = 12
+            num_velocity_iterations = 2
             contact_offset = 0.01  # [m]
             rest_offset = 0.0   # [m]
             bounce_threshold_velocity = 0.5 #0.5 [m/s]

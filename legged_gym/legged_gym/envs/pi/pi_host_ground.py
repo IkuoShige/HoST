@@ -76,9 +76,13 @@ class LeggedRobot_Pi(BaseTask):
         self._init_buffers()
         self._prepare_reward_function()
         self.init_done = True
-        self.unactuated_time = self.cfg.env.unactuated_timesteps
-        self.unactuated_time *= 0.02 / self.dt
+        self.unactuated_time_value = self.cfg.env.unactuated_timesteps * (0.02 / self.dt)
+        self.unactuated_time = torch.full(
+            (self.num_envs,), self.unactuated_time_value,
+            dtype=torch.float, device=self.device
+        )
         self.is_gaussian = cfg.rewards.is_gaussian
+        self.is_powered_drop = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def step(self, actions):
         """ Apply actions, simulate, call self.post_physics_step()
@@ -92,8 +96,27 @@ class LeggedRobot_Pi(BaseTask):
         self.render()
 
         for _ in range(self.cfg.control.decimation):
-            self.actions *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time 
+            self.actions *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
+
+            # ドロップフェーズ中のトルク制御:
+            # - limp (is_powered_drop=False): ゼロトルク（ラグドール）
+            # - hold-pose (is_powered_drop=True): PD制御でデフォルト関節角度を維持
+            is_unactuated = (self.real_episode_length_buf <= self.unactuated_time)
+            if is_unactuated.any():
+                hold_pose_torques = (
+                    self.p_gains * self.Kp_factors * (self.default_dof_pos - self.dof_pos)
+                    - self.d_gains * self.Kd_factors * self.dof_vel
+                )
+                hold_pose_torques = self.motor_strength * hold_pose_torques + self.actuation_offset
+                hold_pose_torques = torch.clip(hold_pose_torques, -self.torque_limits, self.torque_limits)
+
+                unactuated_torques = torch.where(
+                    self.is_powered_drop.unsqueeze(1),
+                    hold_pose_torques,
+                    torch.zeros_like(self.torques),
+                )
+                self.torques[is_unactuated] = unactuated_torques[is_unactuated]
 
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             self.gym.simulate(self.sim)
@@ -108,7 +131,7 @@ class LeggedRobot_Pi(BaseTask):
                 force_tensor = torch.zeros([self.num_envs, self.num_bodies, 3], device=self.device)
                 force_tensor[:, self.base_indices, 2] = self.force 
 
-                force_tensor *= (self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time).unsqueeze(1)
+                force_tensor *= (self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)).unsqueeze(1)
                 if not self.cfg.curriculum.no_orientation:
                     force_tensor *= (self.projected_gravity[:, 2] < -0.8).unsqueeze(1).unsqueeze(1)
                 force_tensor = gymtorch.unwrap_tensor(force_tensor)
@@ -164,6 +187,50 @@ class LeggedRobot_Pi(BaseTask):
         self.last_root_vel[:] = self.root_states[:, 7:13]
         self.last_last_dof_pos[:] = self.last_dof_pos[:]
         self.last_dof_pos[:] = self.dof_pos[:]
+        # logging metrics for diagnostics
+        try:
+            # ankle pitch indices (cache)
+            if not hasattr(self, 'l_ankle_pitch_joint_index'):
+                self.l_ankle_pitch_joint_index = torch.tensor(self.dof_names.index('l_ankle_pitch_joint'), device=self.device)
+                self.r_ankle_pitch_joint_index = torch.tensor(self.dof_names.index('r_ankle_pitch_joint'), device=self.device)
+            l_ap = self.dof_pos[:, self.l_ankle_pitch_joint_index]
+            r_ap = self.dof_pos[:, self.r_ankle_pitch_joint_index]
+            ankle_pitch_mean = (l_ap + r_ap) * 0.5
+            ankle_pitch_diff = torch.abs(l_ap - r_ap)
+
+            # contact forces (z)
+            left_fz = torch.norm(self.contact_forces[:, self.left_foot_indices, 2], dim=-1)
+            right_fz = torch.norm(self.contact_forces[:, self.right_foot_indices, 2], dim=-1)
+            fz_total = left_fz + right_fz + 1e-4
+            fz_imbalance = torch.abs(left_fz - right_fz) / fz_total
+
+            # foot orientation flatness proxy
+            left_quat = self.rigid_body_states[:, self.left_foot_indices, 3:7]
+            right_quat = self.rigid_body_states[:, self.right_foot_indices, 3:7]
+            def rp_mean(q):
+                eul = quat_to_euler_xyz(q.squeeze(1)) if q.shape[1] == 1 else quat_to_euler_xyz(q.mean(dim=1))
+                return (torch.abs(eul[:, 0]) + torch.abs(eul[:, 1]))
+            foot_rp = 0.5 * (rp_mean(left_quat) + rp_mean(right_quat))
+
+            # stand ratios
+            stand_phase2 = (self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2).float()
+            stand_phase3 = (self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3).float()
+
+            if 'metrics' not in self.extras:
+                self.extras['metrics'] = {}
+            self.extras['metrics']['ankle_pitch_mean'] = ankle_pitch_mean.mean().item()
+            self.extras['metrics']['ankle_pitch_diff'] = ankle_pitch_diff.mean().item()
+            self.extras['metrics']['fz_left'] = left_fz.mean().item()
+            self.extras['metrics']['fz_right'] = right_fz.mean().item()
+            self.extras['metrics']['fz_imbalance'] = fz_imbalance.mean().item()
+            self.extras['metrics']['foot_rp_mean'] = foot_rp.mean().item()
+            self.extras['metrics']['stand_phase2_ratio'] = stand_phase2.mean().item()
+            self.extras['metrics']['stand_phase3_ratio'] = stand_phase3.mean().item()
+            self.extras['metrics']['base_height_mean'] = self.root_states[:, 2].mean().item()
+        except Exception as e:
+            # avoid crashing training if any metric fails
+            pass
+
 
     def check_termination(self):
         """ Check if environments need to be reset
@@ -209,6 +276,8 @@ class LeggedRobot_Pi(BaseTask):
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.real_episode_length_buf[env_ids] = 0
+        self.unactuated_time[env_ids] = self.unactuated_time_value  # 全envでドロップフェーズを実行
+        self.is_powered_drop[env_ids] = torch.rand(len(env_ids), device=self.device) < self.cfg.env.powered_drop_ratio
         self.reset_buf[env_ids] = 1
         self.old_headheight[env_ids] = 0
         self.max_headheight[env_ids] = 0
@@ -293,7 +362,7 @@ class LeggedRobot_Pi(BaseTask):
         if self.add_noise:
             current_obs += (2 * torch.rand_like(current_obs) - 1) * self.noise_scale_vec
 
-        current_obs *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time
+        current_obs *= self.real_episode_length_buf.unsqueeze(1) > self.unactuated_time.unsqueeze(1)
         self.obs_buf = torch.cat((self.obs_buf[:, self.num_one_step_obs:self.actor_proprioceptive_obs_length], current_obs), dim=-1)
         # print('obs_buf',self.obs_buf)
     def create_sim(self):
@@ -510,6 +579,29 @@ class LeggedRobot_Pi(BaseTask):
         else:
             self.root_states[env_ids] = self.base_init_state
             self.root_states[env_ids, :3] += self.env_origins[env_ids]
+
+        # Randomly select initial orientation from 4 directions
+        if getattr(self.cfg.init_state, 'random_initial_orientation', False):
+            weights = getattr(self.cfg.init_state, 'orientation_weights', [0.25, 0.25, 0.25, 0.25])
+
+            quats = [
+                torch.tensor(self.cfg.init_state.supine_rot, device=self.device, dtype=torch.float),
+                torch.tensor(self.cfg.init_state.prone_rot, device=self.device, dtype=torch.float),
+                torch.tensor(getattr(self.cfg.init_state, 'left_side_rot', [1.0, 0, 0, 1.0]), device=self.device, dtype=torch.float),
+                torch.tensor(getattr(self.cfg.init_state, 'right_side_rot', [-1.0, 0, 0, 1.0]), device=self.device, dtype=torch.float),
+            ]
+
+            # Sample orientation index for each env
+            orientation_idx = torch.multinomial(
+                torch.tensor(weights, device=self.device),
+                num_samples=len(env_ids),
+                replacement=True
+            )
+
+            for i, quat in enumerate(quats):
+                mask = orientation_idx == i
+                if mask.any():
+                    self.root_states[env_ids[mask], 3:7] = quat
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
@@ -1146,12 +1238,20 @@ class LeggedRobot_Pi(BaseTask):
         return reward 
 
     def _reward_ground_parallel(self):
-        left_ankle_pos = self.rigid_body_states[:, self.left_ankle_indices, 2].clone() * 10
-        right_ankle_pos = self.rigid_body_states[:, self.right_ankle_indices, 2].clone() * 10
-        var = left_ankle_pos.var(1) + right_ankle_pos.var(1)
-        var = torch.mean(torch.concat([left_ankle_pos.var(1).view(-1, 1), right_ankle_pos.var(1).view(-1, 1)], dim=-1), dim=-1)
-        reward = var < 0.05
-
+        # Encourage feet to be parallel to ground: small roll/pitch angles of foot links
+        # Use ankle_pitch links orientation as proxy of foot plane
+        left_quat = self.rigid_body_states[:, self.left_foot_indices, 3:7]
+        right_quat = self.rigid_body_states[:, self.right_foot_indices, 3:7]
+        # Convert to euler and take roll/pitch magnitude
+        def flatness(q):
+            eul = quat_to_euler_xyz(q.squeeze(1)) if q.shape[1] == 1 else quat_to_euler_xyz(q.mean(dim=1))
+            # eul: [N,3] roll=x, pitch=y, yaw=z
+            rp = torch.abs(eul[:, 0]) + torch.abs(eul[:, 1])
+            return rp
+        left_rp = flatness(left_quat)
+        right_rp = flatness(right_quat)
+        rp_mean = 0.5 * (left_rp + right_rp)
+        reward = torch.exp(-5.0 * rp_mean)
         if self.cfg.constraints.post_task:
             standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
             reward = reward * ~standup + torch.ones_like(reward) * standup
@@ -1165,6 +1265,39 @@ class LeggedRobot_Pi(BaseTask):
         # return (feet_distances > 0.33).squeeze(1) #better standing style
         return (feet_distances > 0.45).squeeze(1)
 
+
+    def _reward_feet_contact_balance(self):
+        # Encourage balanced vertical contact forces earlier (phase2+)
+        if self.left_foot_indices.numel() == 0 or self.right_foot_indices.numel() == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        left_fz = torch.norm(self.contact_forces[:, self.left_foot_indices, 2], dim=-1)
+        right_fz = torch.norm(self.contact_forces[:, self.right_foot_indices, 2], dim=-1)
+        diff = torch.abs(left_fz - right_fz)
+        total = (left_fz + right_fz + 1e-4)
+        imbalance = diff / total
+        standup_mid  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2
+        reward = torch.exp(-5.0 * imbalance) * standup_mid
+        return reward
+
+    def _reward_ankle_pitch_neutral(self):
+        # Encourage ankle pitch joints to stay near a neutral slight dorsiflexion (flat foot proxy)
+        # Joint order known by name search
+        target = -0.1
+        # find indices once (cache lazily)
+        if not hasattr(self, 'ankle_pitch_joint_indices'):
+            self.ankle_pitch_joint_indices = []
+            for name in self.dof_names:
+                if 'ankle_pitch_joint' in name:
+                    self.ankle_pitch_joint_indices.append(self.dof_names.index(name))
+            self.ankle_pitch_joint_indices = torch.tensor(self.ankle_pitch_joint_indices, device=self.device, dtype=torch.long)
+        if self.ankle_pitch_joint_indices.numel() == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        ankle_angles = self.dof_pos[:, self.ankle_pitch_joint_indices]
+        # mean squared deviation from target over both ankles
+        mse = torch.mean((ankle_angles - target)**2, dim=1)
+        standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase2
+        reward = torch.exp(-10.0 * mse) * standup
+        return reward
 
     def _reward_style_ang_vel_xy(self):
         # Penalize xy axes base angular velocity
@@ -1215,6 +1348,12 @@ class LeggedRobot_Pi(BaseTask):
 
         return reward
 
+    def _reward_lin_vel_z(self):
+        # Penalize z axis base linear velocity (vertical bouncing)
+        base_height = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
+        reward = torch.exp(torch.square(self.base_lin_vel[:, 2]) * -5) * base_height
+        return reward
+
     def _reward_feet_height_var(self):
         left_foot_height = self.rigid_body_states[:, self.left_foot_indices, 2].clone() * 10
         right_foot_height = self.rigid_body_states[:, self.right_foot_indices, 2].clone() * 10
@@ -1233,9 +1372,11 @@ class LeggedRobot_Pi(BaseTask):
         standup  = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
         return torch.exp(torch.abs(base_height - self.cfg.rewards.base_height_target) * - 20) * standup
     def _reward_target_lower_dof_pos(self):
-        mse = torch.sum(torch.square(self.dof_pos[:, :] - self.target_dof_pos[:, :]), dim=-1)
-        standup =self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
-        reward = torch.exp(mse * self.cfg.rewards.target_dof_pos_sigma) 
+        dof_pos_err = self.dof_pos - self.target_dof_pos
+        dof_pos_err[:, self.hip_pitch_joint_indices.long()] = 0.0  # hip_pitchは除外（orientationとang_vel報酬が担当）
+        mse = torch.sum(torch.square(dof_pos_err), dim=-1)
+        standup = self.root_states[:, 2] > self.cfg.rewards.target_base_height_phase3
+        reward = torch.exp(mse * self.cfg.rewards.target_dof_pos_sigma)
         reward = reward * standup
         return reward
     def _reward_target_upper_dof_pos(self):
